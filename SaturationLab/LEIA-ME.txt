@@ -1,0 +1,118 @@
+SATURATION LAB - WINDOWS X64 / MSVC
+
+Objetivo
+Estudar a correcao e o codigo gerado para aritmetica saturada com MSVC.
+Este primeiro experimento compara /Od e /O2, usando o mesmo codigo-fonte.
+O material serve de base para uma investigacao; nao reivindica ineditismo.
+
+Projeto do Visual Studio
+1. Abra SaturationLab.sln no Visual Studio.
+2. Selecione Debug ou Release, sempre com plataforma x64.
+3. Compile com Ctrl+Shift+B. Os testes rodam ao fim da compilacao.
+4. Execute com Ctrl+F5 para observar a demonstracao no console.
+
+O projeto usa o toolset MSVC v143 (Visual Studio 2022) e um Windows SDK 10.x.
+Instale o componente "Desenvolvimento para desktop com C++" e o toolset v143.
+Se usar outra versao do MSVC, escolha o toolset instalado em:
+Propriedades do projeto > Geral > Conjunto de ferramentas de plataforma.
+
+Debug usa /Od. Release usa /O2. Ambas geram PDB e listing /FAcs.
+Nao ha /GL ou LTCG; a fusao de funcoes identicas tambem fica desabilitada.
+Os resultados da IDE ficam em:
+- bin\Debug\ ou bin\Release\: executavel, PDB e run.txt.
+- obj\Debug\ ou obj\Release\: objetos e saturation_msvc.cod.
+Se um teste falhar, o evento pos-compilacao faz o build falhar.
+
+Como executar pela linha de comando e coletar o disassembly
+1. Tenha o Visual Studio ou Build Tools com ferramentas C/C++ e Windows SDK.
+2. Abra o "x64 Native Tools Command Prompt" do Visual Studio.
+3. Entre na pasta deste pacote.
+4. Execute:
+
+   build_msvc.cmd
+
+O codigo usa C17. Use uma versao do MSVC que ofereca /std:c17.
+Nao e necessario habilitar AVX/AVX2. SSE2 e a base do alvo x64 do MSVC.
+
+Arquivos de entrada
+- SaturationLab.sln: solucao do Visual Studio, Debug/Release x64.
+- SaturationLab.vcxproj e .filters: projeto em C17 e organizacao na IDE.
+- saturation_msvc.c: funcoes escalares, intrinsics SSE2 e testes.
+- build_msvc.cmd: compilacao e coleta dos resultados em duas configuracoes.
+
+Arquivos gerados em out
+- saturation_Od.exe e saturation_O2.exe: executaveis.
+- saturation_*.build.txt: logs; /Bv registra detalhes do compilador utilizado.
+- saturation_*.run.txt: resultados em decimal/binario e status dos testes.
+- saturation_*.cod: listing com fonte, assembly e bytes de maquina (/FAcs).
+- saturation_*.disasm.txt: disassembly dos executaveis pelo dumpbin.
+- saturation_*.pdb: simbolos de depuracao dos executaveis.
+- compiler_*.pdb: informacoes de depuracao da compilacao.
+- simd_instructions.txt: linhas de PADDW, PADDSW e PACKSSWB do binario /O2.
+- windows.txt: versao do Windows informada pelo comando ver.
+
+Operacoes
+- sat_add_i16: soma de 16 bits usando intermediario de 32 bits e clamp.
+- sat_add_i32: soma de 32 bits usando intermediario de 64 bits e clamp.
+- sat_add_i64: verifica os limites antes de somar; nao depende de __int128.
+- sat_add_u32: soma unsigned e mascara de saturacao.
+- sat_div_i32: trata INT32_MIN / -1; exige divisor diferente de zero.
+- wrap_add_i16x8: oito somas comuns de 16 bits via _mm_add_epi16.
+- sat_add_i16x8: oito somas saturadas via _mm_adds_epi16.
+- sat_pack_i16_to_i8: converte dezesseis valores de 16 para 8 bits, com saturacao.
+
+Exemplo de portabilidade deliberadamente incorreto
+wrong_long_limits usa LONG_MAX e LONG_MIN como limites de int64_t.
+No Windows x64, long tem 32 bits e int64_t tem 64 bits. Logo:
+
+  INT64_MAX + 1
+  correto:      9223372036854775807
+  limite errado:         2147483647
+
+  INT64_MIN - 1
+  correto:     -9223372036854775808
+  limite errado:        -2147483648
+
+As expressoes acima descrevem os resultados matematicos a saturar. A soma
+nao representavel nao e executada em signed C: as funcoes verificam antes.
+Esse exemplo minimo ilustra o uso de limites errados. Nao e uma transcricao
+da implementacao do artigo da Lockless.
+
+Testes
+- Casos extremos e resultados esperados para soma int32_t/int64_t/uint32_t.
+- Divisao: inclui INT32_MIN / -1 e 1 / INT32_MAX.
+- Todos os 65.536 valores int16_t contra nove operandos de limite.
+  Compara saturacao escalar com SIMD e confere o wraparound da soma comum.
+- Conversao PACKSSWB: confere dezesseis resultados esperados.
+- O processo retorna 1 se qualquer verificacao falhar; nao usa assert,
+  portanto as verificacoes permanecem ativas em /O2.
+
+Inspecao no IDA / WinDbg
+Abra out\saturation_O2.exe junto com seu PDB. Procure pelas funcoes acima.
+O atributo noinline preserva chamadas visiveis. Compare com a versao /Od.
+Observe como cada if foi compilado: Jcc, CMOVcc ou outra sequencia.
+As versoes escalares nao tem uma sequencia de instrucoes presumida como
+resultado: ela precisa ser observada na versao real do MSVC utilizada.
+
+Limites da validacao entregue
+O pacote foi preparado em Linux sem MSVC. A logica C e as operacoes SSE2
+foram conferidas com GCC, inclusive com UndefinedBehaviorSanitizer.
+O script .cmd, a abertura da solucao no Visual Studio, a compilacao MSVC e
+os resultados de assembly ainda precisam ser validados na maquina Windows.
+Os arquivos de projeto foram conferidos estruturalmente. Nenhum executavel ou
+assembly atribuido ao MSVC e fornecido neste pacote.
+Esta etapa verifica correcao e codigo gerado; nao mede desempenho.
+
+Fontes
+Microsoft - Data Type Ranges
+https://learn.microsoft.com/en-us/cpp/cpp/data-type-ranges
+Microsoft - /FA, /Fa (Listing file)
+https://learn.microsoft.com/en-us/cpp/build/reference/fa-fa-listing-file
+Microsoft - /arch (x64)
+https://learn.microsoft.com/en-us/cpp/build/reference/arch-x64
+Microsoft - Como registrar a versao do compilador com cl /Bv
+https://learn.microsoft.com/en-us/cpp/overview/how-to-report-a-problem-with-the-visual-cpp-toolset
+Microsoft - /DISASM
+https://learn.microsoft.com/en-us/cpp/build/reference/disasm
+Lockless - Branchfree Saturating Arithmetic
+https://locklessinc.com/articles/sat_arithmetic/
